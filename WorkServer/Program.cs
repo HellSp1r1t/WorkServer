@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using System.Net;
 using System.Net.Sockets;
 using System.IO;
+using WorkServer;
+using Newtonsoft.Json;
 
 namespace server
 {
@@ -36,82 +38,53 @@ namespace server
                 }
                 while (listener.Available > 0);
 
-                Console.WriteLine(data);
+                ParametrsClass receivedData = JsonConvert.DeserializeObject<ParametrsClass>(data.ToString());
 
-                string[] fileContent = File.ReadAllLines("WhiteList.txt");
+                Console.WriteLine(DateTime.Now.ToString() + " " + "User - " + receivedData.userName + 
+                                ", did operation - " + receivedData.operation);
 
-                string[] connectDate = data.ToString().Split('/');
+                ParametrsClass answerObject = new ParametrsClass();
 
-                string answear = "";
-
-                switch (connectDate[0])
+                switch (receivedData.operation)
                 {
                     case "Connect":
-                        bool flag = true;
-                        foreach (string content in fileContent)
-                        {
-                            string[] dataFromFile = content.Split(' ');
-                            if (connectDate[1] == dataFromFile[0] && connectDate[2] == dataFromFile[1])
-                            {
-                                answear += "authentication:true/";
-                                answear += "files:" + getFilesOnServer();
-                                flag = false;
-                                break;
-                            }
-                        }
-                        if (flag)
-                        {
-                            answear += "authentication:false/";
-                        }
+                        answerObject.authentication = Users.AuthUser(receivedData.userName, receivedData.userPass).ToString();
+                        answerObject.operation = "authentication";
+                        answerObject.userName = receivedData.userName;
                         break;
-                    case "readFiles":
-                        string nameFile = connectDate[1];
-                        string[] index = File.ReadAllLines("texts/" + nameFile);
-                        answear +="bodyFile/" + string.Join("/n", index);
+                    case "readFile":
+                        answerObject.operation = "bodyFile";
+                        answerObject.fileBody = Documents.GetContentFromFile("texts/" + receivedData.fileName);
                         break;
-                    case "editFiles":
-                        string nameEditFile = connectDate[1];
-                        string[] bodyEditFile = File.ReadAllLines("texts/" + nameEditFile);
-                        answear += "bodyEditFile/" + string.Join("/n", bodyEditFile) +"/" + nameEditFile;
-                        break;
-                    case "finalEditFiles":
-                        string[] finalEditFile = connectDate[1].Split('|');
-                        StreamWriter swe = File.CreateText("texts/" + finalEditFile[1]);
-                        swe.WriteLine(finalEditFile[0]);
-                        swe.Close();
+                    case "readFileForEdit":
+                        answerObject.operation = "bodyEditFile";
+                        answerObject.fileBody = Documents.GetContentFromFile("texts/" + receivedData.fileName);
+                        answerObject.userName = receivedData.userName;
                         break;
                     case "loadFiles":
 
-                        answear += "filesList/files:" + getFilesOnServer();
-
                         break;
                     case "deleteFile":
-                        File.Delete("texts/" + connectDate[1]);
+
                         break;
-                    case "addFile":
-
-                        string[] dataFile = connectDate[1].Split(':')[1].Split('|');
-                        StreamWriter sw = File.CreateText("texts/" + dataFile[0] + ".txt");
-                        sw.WriteLine(dataFile[1]);
-                        sw.Close();
-
+                    case "addOrEditFile":
+                        Documents.WriteContentToFile("texts/" + receivedData.fileName + ".txt", receivedData.fileBody);
                         break;
                     case "addUser":
-                        string[] userInfo = connectDate[1].Split('|');
-                        StreamWriter swa = File.AppendText("whitelist.txt");
-                        swa.WriteLine(userInfo[0] + " " + userInfo[1]);
-                        swa.Close();
-                        answear += "userAdded/";
+                        string login = receivedData.answer.Split('/')[0].Split(':')[1];
+                        string password = receivedData.answer.Split('/')[1].Split(':')[1];
+                        Users.AddNewUser(login, password);
+                        answerObject.answer = "True";
                         break;
                     case "checkUsers":
-                        answear +="usersList/" + getUsersListOnServer();
+
                         break;
                     default:
-                        answear += "authentication:false/";
+
                         break;
                 }
 
-                listener.Send(Encoding.UTF8.GetBytes(answear));
+                listener.Send(Encoding.UTF8.GetBytes(JsonEncode(answerObject)));
 
                 listener.Shutdown(SocketShutdown.Both);
                 listener.Close();
@@ -119,24 +92,21 @@ namespace server
             }
 
         }
-        static string getFilesOnServer() {
-            string[] dirs = Directory.GetFiles(Environment.CurrentDirectory + "/texts");
-            for (int i = 0; i < dirs.Length; i++)
-            {
-                string[] t = dirs[i].Split('\\');
-                dirs[i] = t[t.Length - 1];
-            }
-            return string.Join(",", dirs);
-        }
-        static string getUsersListOnServer()
+        //Метод для создания запроса json
+        private static string JsonEncode(ParametrsClass parametrsClass)
         {
-            string[] inf = File.ReadAllLines("whitelist.txt");
-            string[] NamesUser = new string[inf.Length];
-            for (int i = 0; i < inf.Length; i++) {
-                NamesUser[i] = inf[i].Split(' ')[0];
-            }
-            return string.Join(",", NamesUser);
+            return JsonConvert.SerializeObject(parametrsClass);
         }
-        
+        class ParametrsClass
+        {
+            public string operation = null;
+            public string userName = null;
+            public string userPass = null;
+            public string fileName = null;
+            public string fileBody = null;
+            public string answer = null;
+            public string authentication = null;
+        }
+
     }
 }
